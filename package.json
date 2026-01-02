@@ -1,0 +1,17 @@
+{
+  "name": "receipegram",
+  "version": "1.0.0",
+  "description": "A recipe sharing application similar to Instagram",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm start",
+    "install-deps": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "keywords": ["recipe", "sharing", "social", "video"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
