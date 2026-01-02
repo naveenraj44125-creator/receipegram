@@ -29,7 +29,7 @@ application:
     APP_ENV: production
     # Node.js specific
     NODE_ENV: production
-    PORT: "3000"
+    PORT: "5001"
 
 dependencies:
   # Database Dependencies
@@ -92,7 +92,7 @@ dependencies:
         - "22"    # SSH
         - "80"    # HTTP
         - "443"   # HTTPS
-        - "3000"  # Node.js
+        - "5001"  # Node.js
       deny_all_other: true
 
 deployment:
@@ -137,7 +137,7 @@ deployment:
       endpoints_to_test:
         - "/"
         - "/api/health"
-      port: 3000  # Node.js applications run on port 3000
+      port: 5001  # Node.js applications run on port 5001
 
 github_actions:
   triggers:
@@ -164,7 +164,7 @@ monitoring:
   health_check:
     endpoint: "/"
     expected_content: "Node.js"
-    port: 3000  # Node.js applications run on port 3000
+    port: 5001  # Node.js applications run on port 5001
     max_attempts: 15
     wait_between_attempts: 20
     initial_wait: 60

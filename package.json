@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "A recipe sharing application similar to Instagram",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "cd server && npm run dev",
     "client": "cd client && npm start",
-    "install-deps": "npm install && cd server && npm install && cd ../client && npm install"
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "cd client && npm install && npm run build",
+    "start": "cd server && npm start",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": ["recipe", "sharing", "social", "video"],
   "author": "",
