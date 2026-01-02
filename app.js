@@ -1,79 +1,79 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+require('dotenv').config();
+
+const authRoutes = require('./server/routes/auth');
+const userRoutes = require('./server/routes/users');
+const recipeRoutes = require('./server/routes/recipes');
+const { initializeDatabase } = require('./server/database/init');
+
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5001;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.urlencoded({ extended: true }));
+
+// Serve static files (uploaded videos and images)
+app.use('/uploads', express.static(path.join(__dirname, 'server/uploads')));
+
+// Serve React build files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'client/build')));
+}
+
+// Initialize database
+initializeDatabase();
 
 // Routes
-app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Receipegram</title>
-            <style>
-                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-                .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                .header { text-align: center; color: #333; margin-bottom: 30px; }
-                .info { background: #e8f4fd; padding: 15px; border-radius: 5px; margin: 15px 0; }
-                .success { background: #d4edda; color: #155724; padding: 15px; border-radius: 5px; margin: 15px 0; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🚀 Receipegram</h1>
-                    <p>Node.js Application deployed via GitHub Actions</p>
-                </div>
-                
-                <div class="success">
-                    ✅ Application is running successfully!
-                </div>
-                
-                <div class="info">
-                    <h3>System Information</h3>
-                    <p><strong>Node.js Version:</strong> ${process.version}</p>
-                    <p><strong>Environment:</strong> ${process.env.NODE_ENV || 'development'}</p>
-                    <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-                </div>
-                
-                <div class="info">
-                    <h3>API Endpoints</h3>
-                    <p><a href="/api/health">Health Check</a></p>
-                    <p><a href="/api/info">System Info</a></p>
-                </div>
-            </div>
-        </body>
-        </html>
-    `);
-});
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/recipes', recipeRoutes);
 
+// Health check endpoint
 app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
+  res.json({ message: 'Receipegram API is running!', status: 'ok' });
 });
 
-app.get('/api/info', (req, res) => {
+// Root endpoint for basic connectivity test
+app.get('/', (req, res) => {
+  if (process.env.NODE_ENV === 'production' && require('fs').existsSync(path.join(__dirname, 'client/build/index.html'))) {
+    res.sendFile(path.join(__dirname, 'client/build/index.html'));
+  } else {
     res.json({
-        status: 'success',
-        message: 'Receipegram Node.js Application',
-        version: '1.0.0',
-        node_version: process.version,
-        environment: process.env.NODE_ENV || 'development',
-        timestamp: new Date().toISOString()
+      message: 'Receipegram - Recipe Sharing Platform',
+      status: 'running',
+      endpoints: {
+        health: '/api/health',
+        auth: '/api/auth',
+        users: '/api/users',
+        recipes: '/api/recipes'
+      }
     });
+  }
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Receipegram server running on port ${PORT}`);
-    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+// Catch-all handler for React SPA in production
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    if (require('fs').existsSync(path.join(__dirname, 'client/build/index.html'))) {
+      res.sendFile(path.join(__dirname, 'client/build/index.html'));
+    } else {
+      res.status(404).json({ message: 'React build not found. Run npm run build first.' });
+    }
+  });
+}
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Something went wrong!' });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Receipegram server running on port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
 });
