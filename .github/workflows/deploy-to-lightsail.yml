@@ -1,0 +1,241 @@
+name: Deploy to AWS Lightsail
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  LIGHTSAIL_SERVICE_NAME: receipegram
+  LIGHTSAIL_CONTAINER_NAME: receipegram-container
+
+jobs:
+  deploy:
+    name: Deploy to Lightsail
+    runs-on: ubuntu-latest
+    
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install root dependencies
+      run: npm ci
+
+    - name: Install client dependencies
+      run: |
+        cd client
+        npm ci
+
+    - name: Install server dependencies
+      run: |
+        cd server
+        npm ci
+
+    - name: Build client
+      run: |
+        cd client
+        npm run build
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: GitHub_to_AWS_via_FederatedOIDC
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Create Lightsail deployment package
+      run: |
+        # Create deployment directory
+        mkdir -p deployment
+        
+        # Copy server files
+        cp -r server/* deployment/
+        
+        # Copy built client files to server's public directory
+        mkdir -p deployment/public
+        cp -r client/build/* deployment/public/
+        
+        # Copy root package.json and other necessary files
+        cp package.json deployment/
+        cp app.js deployment/
+        
+        # Create Dockerfile for containerized deployment
+        cat > deployment/Dockerfile << EOF
+        FROM node:18-alpine
+        
+        # Create app directory
+        WORKDIR /usr/src/app
+        
+        # Copy package files
+        COPY package*.json ./
+        COPY server/package*.json ./server/
+        
+        # Install app dependencies
+        RUN npm ci --only=production
+        RUN cd server && npm ci --only=production
+        
+        # Copy app source
+        COPY . .
+        
+        # Create uploads directory
+        RUN mkdir -p uploads
+        
+        # Expose port
+        EXPOSE 3001
+        
+        # Start the application
+        CMD ["node", "app.js"]
+        EOF
+
+    - name: Build Docker image
+      run: |
+        cd deployment
+        docker build -t receipegram:latest .
+
+    - name: Login to Amazon ECR Public
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        registry-type: public
+
+    - name: Build, tag, and push image to Amazon ECR Public
+      run: |
+        # Get the ECR registry URI
+        REGISTRY_URI=public.ecr.aws/$(aws sts get-caller-identity --query Account --output text)
+        
+        # Tag and push image
+        docker tag receipegram:latest $REGISTRY_URI/receipegram:latest
+        docker tag receipegram:latest $REGISTRY_URI/receipegram:${{ github.sha }}
+        docker push $REGISTRY_URI/receipegram:latest
+        docker push $REGISTRY_URI/receipegram:${{ github.sha }}
+        
+        echo "IMAGE_URI=$REGISTRY_URI/receipegram:${{ github.sha }}" >> $GITHUB_ENV
+
+    - name: Create Lightsail container service (if not exists)
+      run: |
+        # Check if container service exists
+        if ! aws lightsail get-container-services --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} --region ${{ env.AWS_REGION }} >/dev/null 2>&1; then
+          echo "Creating new Lightsail container service..."
+          aws lightsail create-container-service \
+            --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+            --power small \
+            --scale 1 \
+            --region ${{ env.AWS_REGION }}
+          
+          # Wait for service to be ready
+          aws lightsail wait container-service-ready \
+            --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+            --region ${{ env.AWS_REGION }}
+        else
+          echo "Container service already exists"
+        fi
+
+    - name: Deploy to Lightsail Container Service
+      run: |
+        # Create deployment configuration
+        cat > containers.json << EOF
+        {
+          "${{ env.LIGHTSAIL_CONTAINER_NAME }}": {
+            "image": "${{ env.IMAGE_URI }}",
+            "ports": {
+              "3001": "HTTP"
+            },
+            "environment": {
+              "NODE_ENV": "production",
+              "PORT": "3001"
+            }
+          }
+        }
+        EOF
+        
+        cat > public-endpoint.json << EOF
+        {
+          "containerName": "${{ env.LIGHTSAIL_CONTAINER_NAME }}",
+          "containerPort": 3001,
+          "healthCheck": {
+            "healthyThreshold": 2,
+            "unhealthyThreshold": 2,
+            "timeoutSeconds": 5,
+            "intervalSeconds": 30,
+            "path": "/api/health",
+            "successCodes": "200-299"
+          }
+        }
+        EOF
+
+        # Deploy the container
+        aws lightsail create-container-service-deployment \
+          --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+          --containers file://containers.json \
+          --public-endpoint file://public-endpoint.json \
+          --region ${{ env.AWS_REGION }}
+
+    - name: Wait for deployment to complete
+      run: |
+        echo "Waiting for deployment to complete..."
+        aws lightsail wait container-service-deployed \
+          --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+          --region ${{ env.AWS_REGION }}
+
+    - name: Get service URL
+      run: |
+        SERVICE_URL=$(aws lightsail get-container-services \
+          --service-name ${{ env.LIGHTSAIL_SERVICE_NAME }} \
+          --region ${{ env.AWS_REGION }} \
+          --query 'containerServices[0].url' \
+          --output text)
+        
+        echo "🚀 Deployment complete!"
+        echo "Service URL: $SERVICE_URL"
+        echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+
+    - name: Health check
+      run: |
+        echo "Performing health check..."
+        max_attempts=10
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Health check attempt $attempt/$max_attempts"
+          
+          if curl -f -s "${{ env.SERVICE_URL }}/api/health" > /dev/null 2>&1; then
+            echo "✅ Health check passed!"
+            break
+          else
+            if [ $attempt -eq $max_attempts ]; then
+              echo "❌ Health check failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "Health check failed, retrying in 30 seconds..."
+            sleep 30
+          fi
+          
+          attempt=$((attempt + 1))
+        done
+
+  notify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [ "${{ needs.deploy.result }}" = "success" ]; then
+          echo "✅ Deployment completed successfully!"
+          echo "The Receipegram application is now live on AWS Lightsail."
+        else
+          echo "❌ Deployment failed!"
+          echo "Please check the logs above for error details."
+        fi

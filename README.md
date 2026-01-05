@@ -149,6 +149,36 @@ The application uses SQLite for simplicity. The database file (`receipegram.db`)
 4. Test your changes
 5. Submit a pull request
 
+## Deployment
+
+This project includes automated deployment to AWS Lightsail using GitHub Actions.
+
+### Quick Deployment Setup
+
+1. **Run the AWS setup script:**
+   ```bash
+   ./scripts/setup-aws-deployment.sh
+   ```
+
+2. **Add GitHub Secret:**
+   - Go to your repository settings → Secrets and variables → Actions
+   - Add `AWS_ROLE_ARN` with the value provided by the setup script
+
+3. **Deploy:**
+   - Push to `main` or `master` branch to trigger automatic deployment
+   - Or manually trigger via GitHub Actions tab
+
+### Deployment Features
+
+- **Automatic CI/CD**: Deploys on every push to main/master
+- **Containerized**: Uses Docker for consistent deployments
+- **Scalable**: AWS Lightsail container service with auto-scaling
+- **Secure**: Uses AWS OIDC for secure authentication
+- **Health Checks**: Automatic health monitoring
+- **Cost-Effective**: ~$7-15/month for small applications
+
+For detailed deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ## License
 
 This project is licensed under the MIT License.
